@@ -166,8 +166,6 @@ int main(int argc, char **argv) {
                     }
                     fclose(fp);
                     last_mod_time = file_stat.st_mtime;
-                } else {
-                    printf("No blacklist.txt found. Skipping static blocklist loading.\n");
                 }
             }
         }
