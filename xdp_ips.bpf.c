@@ -63,7 +63,7 @@ static __always_inline int check_rate_limit(void *tracker_map, __u32 ip, __u64 n
 
 SEC("xdp")
 int xdp_ips_main(struct xdp_md *ctx) {
-    // Week 1 & 2 Milestone: Packet Parsing & Bounds Checking
+    // Week 1-2 Milestone: Packet Parsing & Bounds Checking
     void *data_end = (void *)(long)ctx->data_end;
     void *data     = (void *)(long)ctx->data;
     __u64 now      = bpf_ktime_get_ns();
