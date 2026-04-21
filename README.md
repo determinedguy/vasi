@@ -21,6 +21,10 @@ No more attack? Wait for 30s first for expiry -> block rule expired (except manu
 
 goes to `blacklist.txt` in the same folder, basically
 
+## System Logging
+
+> sudo cat /sys/kernel/debug/tracing/trace_pipe
+
 ## Testing
 
 ### SYN/TCP
