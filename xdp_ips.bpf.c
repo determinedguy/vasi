@@ -74,7 +74,7 @@ static __always_inline int check_rate_limit(void *tracker_map, __u32 ip, __u64 n
 
 SEC("xdp")
 int xdp_ips_main(struct xdp_md *ctx) {
-    // --- Week 1 & 2 Milestone: Packet Parsing & Bounds Checking
+    // Week 1 & 2 Milestone: Packet Parsing & Bounds Checking
     void *data_end = (void *)(long)ctx->data_end;
     void *data     = (void *)(long)ctx->data;
     __u64 now      = bpf_ktime_get_ns();
@@ -88,18 +88,23 @@ int xdp_ips_main(struct xdp_md *ctx) {
 
     __u32 src_ip = iph->saddr;
 
-    // --- WEEK 4: BLOCKLIST ENFORCEMENT ---
+    // Week 4 Milestone: Blocklist Enforcement
     __u64 *expiry_time = bpf_map_lookup_elem(&blocklist, &src_ip);
     if (expiry_time) {
         if (now < *expiry_time) {
-            return XDP_DROP; // IP is currently blocked
+            // SLIDING WINDOW: The attacker is still sending packets.
+            // Reset their 30-second expiration clock.
+            *expiry_time = now + BLOCK_TIME_NS; 
+            
+            return XDP_DROP;
         } else {
-            // Block expired, clean it up
+            // The 30 seconds have passed with zero traffic.
+            // Block expired, clean it up.
             bpf_map_delete_elem(&blocklist, &src_ip);
         }
     }
 
-    // --- Week 3 Milestone: Detection Rules ---
+    // Week 3 Milestone: Detection Rules
     int trigger_block = 0;
 
     if (iph->protocol == IPPROTO_TCP) {
