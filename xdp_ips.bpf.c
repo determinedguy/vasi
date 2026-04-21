@@ -93,14 +93,15 @@ int xdp_ips_main(struct xdp_md *ctx) {
     if (expiry_time) {
         if (now < *expiry_time) {
             // SLIDING WINDOW: The attacker is still sending packets.
-            // Reset their 30-second expiration clock.
+            // Reset their 30-second expiration clock as a penalty.
             *expiry_time = now + BLOCK_TIME_NS; 
             
             return XDP_DROP;
         } else {
             // The 30 seconds have passed with zero traffic.
-            // Block expired, clean it up.
+            // Clean up the block and log the event.
             bpf_map_delete_elem(&blocklist, &src_ip);
+            bpf_printk("Block expired. IP %x unblocked and traffic allowed.\n", src_ip);
         }
     }
 
