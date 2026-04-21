@@ -30,21 +30,43 @@ void poll_blocklist(int map_fd) {
     char ip_str[INET_ADDRSTRLEN];
     int active_blocks = 0;
 
-    printf("\n--- Active Blocklist ---\n");
+    // Get current time for the dashboard header
+    time_t now = time(NULL);
+    struct tm *tm_info = localtime(&now);
+    char time_buf[26];
+    strftime(time_buf, 26, "%Y-%m-%d %H:%M:%S", tm_info);
+
+    // ANSI escape codes: 
+    // \033[2J clears the entire screen
+    // \033[H moves the cursor to the top-left corner
+    printf("\033[2J\033[H");
+
+    printf("=================================================\n");
+    printf("   XDP Intrusion Prevention System | %s\n", time_buf);
+    printf("=================================================\n");
+    printf(" %-20s | %s\n", "Source IP Address", "Status");
+    printf("-------------------------------------------------\n");
+
     // Iterate through the BPF map
     while (bpf_map_get_next_key(map_fd, &key, &next_key) == 0) {
         if (bpf_map_lookup_elem(map_fd, &next_key, &value) == 0) {
             format_ip(next_key, ip_str);
-            printf("[BLOCKED] IP: %s\n", ip_str);
+            // \033[31m makes text red, \033[0m resets it
+            printf(" %-20s | \033[31mBLOCKED\033[0m\n", ip_str);
             active_blocks++;
         }
         key = next_key;
     }
     
     if (active_blocks == 0) {
-        printf("No active blocks.\n");
+        printf(" %-20s | \033[32mSECURE\033[0m\n", "No active threats");
     }
-    printf("------------------------\n");
+    printf("=================================================\n");
+    printf(" Active Mitigations: %d\n", active_blocks);
+    printf(" Press Ctrl+C to detach IPS and exit.\n");
+    
+    // Force the terminal to draw the frame immediately
+    fflush(stdout); 
 }
 
 int main(int argc, char **argv) {
