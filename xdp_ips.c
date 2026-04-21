@@ -65,6 +65,7 @@ void poll_blocklist(int map_fd) {
                 if (value.reason == 1) reason_str = "SYN";
                 else if (value.reason == 2) reason_str = "ICMP";
                 else if (value.reason == 3) reason_str = "UDP";
+                else if (value.reason == 4) reason_str = "MANUAL";
 
                 printf(" %-20s | \033[31mBLOCKED [%s]\033[0m\n", ip_str, reason_str);
                 active_blocks++;
@@ -118,6 +119,26 @@ int main(int argc, char **argv) {
     printf("IPS loaded on %s. Enforcing thresholds (SYN:100/s, ICMP:50/s, UDP:200/s).\n", argv[1]);
 
     int blocklist_fd = bpf_map__fd(skel->maps.blocklist);
+
+    // Week 4 Milestone: Static Manual Blocklist
+    FILE *fp = fopen("blacklist.txt", "r");
+    if (fp) {
+        char line[64];
+        while (fgets(line, sizeof(line), fp)) {
+            __u32 manual_ip;
+            // Convert the string IP to network byte order
+            if (inet_pton(AF_INET, line, &manual_ip) == 1) {
+                struct block_info static_block = {
+                    .expiry = 0xFFFFFFFFFFFFFFFFULL, // Max 64-bit int (Never expires)
+                    .reason = 4                      // Code for Manual Block
+                };
+                bpf_map_update_elem(blocklist_fd, &manual_ip, &static_block, BPF_ANY);
+            }
+        }
+        fclose(fp);
+    } else {
+        printf("No blacklist.txt found. Skipping static blocklist loading.\n");
+    }
 
     // Monitoring loop
     while (!exiting) {
