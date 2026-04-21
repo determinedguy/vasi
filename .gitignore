@@ -1,0 +1,21 @@
+# Compiled Object files (Kernel and User-space)
+*.o
+*.ll
+*.bc
+
+# Generated BPF skeleton headers
+*.skel.h
+
+# Executable binary
+xdp_ips
+
+# Clangd / Language Server Protocol (LSP) files
+.cache/
+compile_commands.json
+
+# Standard Editor & OS cruft
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
