@@ -6,14 +6,22 @@ USER_OBJ = $(APP).o
 CC = clang
 BPF_CC = clang
 
+# Architecture-specific include paths for libbpf headers
+ARCH := $(shell uname -m)
+ifeq ($(ARCH), x86_64)
+    ARCH_INCLUDES := -I/usr/include/x86_64-linux-gnu
+else ifeq ($(ARCH), aarch64)
+    ARCH_INCLUDES := -I/usr/include/aarch64-linux-gnu
+endif
+
 # Link against the system's libbpf
 LIBS = -lbpf -lelf -lz
 
 all: $(APP)
 
-# 1. Compile BPF code to object file
+# 1. Compile BPF code to object file (uses dynamic headers)
 $(BPF_OBJ): $(APP).bpf.c
-	$(BPF_CC) -g -O2 -target bpf -I/usr/include/x86_64-linux-gnu -c $< -o $@
+	$(BPF_CC) -g -O2 -target bpf $(ARCH_INCLUDES) -c $< -o $@
 
 # 2. Generate C skeleton header
 $(SKEL): $(BPF_OBJ)
