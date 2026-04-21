@@ -14,60 +14,49 @@ char LICENSE[] SEC("license") = "Dual BSD/GPL";
 #define WINDOW_NS 1000000000ULL      // 1-second rate limit window
 #define BLOCK_TIME_NS 30000000000ULL // 30-second temporary block
 
+// Define block reasons
+#define REASON_SYN 1
+#define REASON_ICMP 2
+#define REASON_UDP 3
+#define REASON_MANUAL 4
+
 struct rate_tracker {
     __u64 count;
     __u64 window_start;
 };
 
-// Blocklist: Key = Source IP, Value = Expiration Timestamp
+// Struct to hold both the expiration time and the reason
+struct block_info {
+    __u64 expiry;
+    __u32 reason;
+};
+
+// Blocklist: Key = Source IP, Value = Expiration Timestamp + Reason
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __uint(max_entries, 65536);
     __type(key, __u32);
-    __type(value, __u64);
+    __type(value, struct block_info);
 } blocklist SEC(".maps");
 
-// Rate limit trackers per protocol
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, 65536);
-    __type(key, __u32);
-    __type(value, struct rate_tracker);
-} syn_tracker SEC(".maps");
+// Rate limit trackers
+struct { __uint(type, BPF_MAP_TYPE_LRU_HASH); __uint(max_entries, 65536); __type(key, __u32); __type(value, struct rate_tracker); } syn_tracker SEC(".maps");
+struct { __uint(type, BPF_MAP_TYPE_LRU_HASH); __uint(max_entries, 65536); __type(key, __u32); __type(value, struct rate_tracker); } icmp_tracker SEC(".maps");
+struct { __uint(type, BPF_MAP_TYPE_LRU_HASH); __uint(max_entries, 65536); __type(key, __u32); __type(value, struct rate_tracker); } udp_tracker SEC(".maps");
 
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, 65536);
-    __type(key, __u32);
-    __type(value, struct rate_tracker);
-} icmp_tracker SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, 65536);
-    __type(key, __u32);
-    __type(value, struct rate_tracker);
-} udp_tracker SEC(".maps");
-
-// Helper function to check and update rate limits
 static __always_inline int check_rate_limit(void *tracker_map, __u32 ip, __u64 now, __u64 threshold) {
     struct rate_tracker *tracker = bpf_map_lookup_elem(tracker_map, &ip);
-    
     if (!tracker) {
         struct rate_tracker new_tracker = { .count = 1, .window_start = now };
         bpf_map_update_elem(tracker_map, &ip, &new_tracker, BPF_ANY);
-        return 0; // Not blocked
+        return 0;
     }
-
     if (now - tracker->window_start > WINDOW_NS) {
-        // Window expired, reset counter
         tracker->count = 1;
         tracker->window_start = now;
     } else {
         tracker->count++;
-        if (tracker->count > threshold) {
-            return 1; // Threshold exceeded, trigger block
-        }
+        if (tracker->count > threshold) return 1;
     }
     return 0;
 }
@@ -89,24 +78,25 @@ int xdp_ips_main(struct xdp_md *ctx) {
     __u32 src_ip = iph->saddr;
 
     // Week 4 Milestone: Blocklist Enforcement
-    __u64 *expiry_time = bpf_map_lookup_elem(&blocklist, &src_ip);
-    if (expiry_time) {
-        if (now < *expiry_time) {
+    struct block_info *info = bpf_map_lookup_elem(&blocklist, &src_ip);
+    if (info) {
+        if (now < info->expiry) {
             // SLIDING WINDOW: The attacker is still sending packets.
             // Reset their 30-second expiration clock as a penalty.
-            *expiry_time = now + BLOCK_TIME_NS; 
-            
-            return XDP_DROP;
+            info->expiry = now + BLOCK_TIME_NS; 
+            return XDP_DROP; 
         } else {
             // The 30 seconds have passed with zero traffic.
             // Clean up the block and log the event.
             bpf_map_delete_elem(&blocklist, &src_ip);
-            bpf_printk("Block expired. IP %x unblocked and traffic allowed.\n", src_ip);
+            // IP is logged in Hex (e.g. 100007f for 127.0.0.1)
+            bpf_printk("IP %x unblocked. 30s block window expired.\n", src_ip);
         }
     }
 
     // Week 3 Milestone: Detection Rules
     int trigger_block = 0;
+    __u32 block_reason = 0;
 
     if (iph->protocol == IPPROTO_TCP) {
         struct tcphdr *tcph = (void *)iph + (iph->ihl * 4);
@@ -116,7 +106,8 @@ int xdp_ips_main(struct xdp_md *ctx) {
         if (tcph->syn && !tcph->ack) {
             if (check_rate_limit(&syn_tracker, src_ip, now, 100)) {
                 trigger_block = 1;
-                bpf_printk("SYN flood detected. Blocking IP.\n");
+                block_reason = REASON_SYN;
+                bpf_printk("SYN flood from IP: %x. Blocking.\n", src_ip);
             }
         }
     } 
@@ -124,11 +115,11 @@ int xdp_ips_main(struct xdp_md *ctx) {
         struct icmphdr *icmph = (void *)iph + (iph->ihl * 4);
         if ((void *)(icmph + 1) > data_end) return XDP_PASS;
 
-        // ICMP Flood Rule: 50 pkts/s threshold
         if (icmph->type == ICMP_ECHO) {
             if (check_rate_limit(&icmp_tracker, src_ip, now, 50)) {
                 trigger_block = 1;
-                bpf_printk("ICMP flood detected. Blocking IP.\n");
+                block_reason = REASON_ICMP;
+                bpf_printk("ICMP flood from IP: %x. Blocking.\n", src_ip);
             }
         }
     }
@@ -139,14 +130,18 @@ int xdp_ips_main(struct xdp_md *ctx) {
 
         if (check_rate_limit(&udp_tracker, src_ip, now, 200)) {
             trigger_block = 1;
-            bpf_printk("UDP flood detected. Blocking IP.\n");
+            block_reason = REASON_UDP;
+            bpf_printk("UDP flood from IP: %x. Blocking.\n", src_ip);
         }
     }
 
     // Apply the block if any rule was triggered
     if (trigger_block) {
-        __u64 block_until = now + BLOCK_TIME_NS;
-        bpf_map_update_elem(&blocklist, &src_ip, &block_until, BPF_ANY);
+        struct block_info new_block = {
+            .expiry = now + BLOCK_TIME_NS,
+            .reason = block_reason
+        };
+        bpf_map_update_elem(&blocklist, &src_ip, &new_block, BPF_ANY);
         return XDP_DROP;
     }
 
