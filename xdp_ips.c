@@ -47,11 +47,11 @@ void poll_blocklist(int map_fd) {
     __u64 now_ns = ts.tv_sec * 1000000000ULL + ts.tv_nsec;
 
     printf("\033[2J\033[H");
-    printf("=================================================\n");
+    printf("============================================================\n");
     printf(" Vasi: XDP Intrusion Prevention System | %s\n", time_buf);
-    printf("=================================================\n");
+    printf("============================================================\n");
     printf(" %-20s | %s\n", "Source IP Address", "Status");
-    printf("-------------------------------------------------\n");
+    printf("------------------------------------------------------------\n");
 
     while (bpf_map_get_next_key(map_fd, &key, &next_key) == 0) {
         if (bpf_map_lookup_elem(map_fd, &next_key, &value) == 0) {
@@ -78,7 +78,7 @@ void poll_blocklist(int map_fd) {
     if (active_blocks == 0) {
         printf(" %-20s | \033[32mSECURE\033[0m\n", "No active threats");
     }
-    printf("=================================================\n");
+    printf("============================================================\n");
     printf(" Active Mitigations: %d\n", active_blocks);
     printf(" Press Ctrl+C to detach IPS and exit.\n");
     
