@@ -13,7 +13,7 @@ all: $(APP)
 
 # 1. Compile BPF code to object file
 $(BPF_OBJ): $(APP).bpf.c
-	$(BPF_CC) -g -O2 -target bpf -c $< -o $@
+	$(BPF_CC) -g -O2 -target bpf -I/usr/include/x86_64-linux-gnu -c $< -o $@
 
 # 2. Generate C skeleton header
 $(SKEL): $(BPF_OBJ)
