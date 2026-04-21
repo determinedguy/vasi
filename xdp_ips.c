@@ -145,6 +145,8 @@ int main(int argc, char **argv) {
                 if (fp) {
                     char line[64];
                     while (fgets(line, sizeof(line), fp)) {
+                        // Strip newline characters from the file read
+                        line[strcspn(line, "\r\n")] = 0;
                         __u32 manual_ip;
                         // Convert the string IP to network byte order
                         if (inet_pton(AF_INET, line, &manual_ip) == 1) {
@@ -153,6 +155,13 @@ int main(int argc, char **argv) {
                                 .reason = 4                      // Code for Manual Block
                             };
                             bpf_map_update_elem(blocklist_fd, &manual_ip, &static_block, BPF_ANY);
+
+                            // NEW: Log the manual block injection to the kernel trace pipe
+                            FILE *trace_fd = fopen("/sys/kernel/debug/tracing/trace_marker", "w");
+                            if (trace_fd) {
+                                fprintf(trace_fd, "IP %s is MANUALLY BLOCKED by blacklist.txt.\n", line);
+                                fclose(trace_fd);
+                            }
                         }
                     }
                     fclose(fp);
@@ -164,7 +173,7 @@ int main(int argc, char **argv) {
         }
 
         poll_blocklist(blocklist_fd);
-        sleep(2);
+        sleep(1);
     }
 
 cleanup:

@@ -76,21 +76,25 @@ int xdp_ips_main(struct xdp_md *ctx) {
     if ((void *)(iph + 1) > data_end) return XDP_PASS;
 
     __u32 src_ip = iph->saddr;
+    // Cast the 32-bit IP into an array of 4 individual bytes for logging
+    __u8 *ip = (__u8 *)&src_ip;
 
     // Week 4 Milestone: Blocklist Enforcement
     struct block_info *info = bpf_map_lookup_elem(&blocklist, &src_ip);
     if (info) {
         if (now < info->expiry) {
             // SLIDING WINDOW: The attacker is still sending packets.
-            // Reset their 30-second expiration clock as a penalty.
-            info->expiry = now + BLOCK_TIME_NS; 
+            // Reset their 30-second expiration clock as a penalty (for temporary blocks).
+            // Manual blocks (reason 4) keep their infinite timestamp.
+            if (info->reason != 4) {
+                info->expiry = now + BLOCK_TIME_NS;
+            }
             return XDP_DROP; 
         } else {
             // The 30 seconds have passed with zero traffic.
-            // Clean up the block and log the event.
+            // Clean up the block and log the unblocking.
             bpf_map_delete_elem(&blocklist, &src_ip);
-            // IP is logged in Hex (e.g. 100007f for 127.0.0.1)
-            bpf_printk("IP %x unblocked. 30s block window expired.\n", src_ip);
+            bpf_printk("IP %d.%d.%d.%d unblocked. 30s block window expired.\n", ip[0], ip[1], ip[2], ip[3]);
         }
     }
 
@@ -107,7 +111,8 @@ int xdp_ips_main(struct xdp_md *ctx) {
             if (check_rate_limit(&syn_tracker, src_ip, now, 100)) {
                 trigger_block = 1;
                 block_reason = REASON_SYN;
-                bpf_printk("SYN flood from IP: %x. Blocking.\n", src_ip);
+                // Print the 4 octets using %d.%d.%d.%d
+                bpf_printk("SYN flood from IP: %d.%d.%d.%d. Blocking.\n", ip[0], ip[1], ip[2], ip[3]);
             }
         }
     } 
@@ -119,7 +124,7 @@ int xdp_ips_main(struct xdp_md *ctx) {
             if (check_rate_limit(&icmp_tracker, src_ip, now, 50)) {
                 trigger_block = 1;
                 block_reason = REASON_ICMP;
-                bpf_printk("ICMP flood from IP: %x. Blocking.\n", src_ip);
+                bpf_printk("ICMP flood from IP: %d.%d.%d.%d. Blocking.\n", ip[0], ip[1], ip[2], ip[3]);
             }
         }
     }
@@ -131,7 +136,7 @@ int xdp_ips_main(struct xdp_md *ctx) {
         if (check_rate_limit(&udp_tracker, src_ip, now, 200)) {
             trigger_block = 1;
             block_reason = REASON_UDP;
-            bpf_printk("UDP flood from IP: %x. Blocking.\n", src_ip);
+            bpf_printk("UDP flood from IP: %d.%d.%d.%d. Blocking.\n", ip[0], ip[1], ip[2], ip[3]);
         }
     }
 
