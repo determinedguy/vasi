@@ -68,7 +68,7 @@ void poll_blocklist(int map_fd) {
                 // 3. Inject the unblock log directly into the kernel's trace_pipe
                 FILE *trace_fd = fopen("/sys/kernel/debug/tracing/trace_marker", "w");
                 if (trace_fd) {
-                    fprintf(trace_fd, "IP %s unblocked. 30s block window expired.\n", ip_str);
+                    fprintf(trace_fd, "IP %s unblocked. 30s block window expired.\n\n", ip_str);
                     fclose(trace_fd);
                 }
             } else {
