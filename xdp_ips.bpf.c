@@ -106,7 +106,28 @@ int xdp_ips_main(struct xdp_md *ctx) {
         struct tcphdr *tcph = (void *)iph + (iph->ihl * 4);
         if ((void *)(tcph + 1) > data_end) return XDP_PASS;
 
-        // SYN Flood Rule: 100 pkts/s threshold
+        // Additional: Malformed Packet Drops (Instant Death, No Tracking Needed)
+        
+        // 1. NULL Scan (No flags set)
+        if (!tcph->syn && !tcph->ack && !tcph->fin && !tcph->rst && !tcph->psh && !tcph->urg) {
+            bpf_printk("NULL Scan detected from IP: %d.%d.%d.%d. Dropping.\n", ip[0], ip[1], ip[2], ip[3]);
+            return XDP_DROP;
+        }
+
+        // 2. XMAS Scan (FIN, PSH, and URG set simultaneously)
+        if (tcph->fin && tcph->psh && tcph->urg) {
+            bpf_printk("XMAS Scan detected from IP: %d.%d.%d.%d. Dropping.\n", ip[0], ip[1], ip[2], ip[3]);
+            return XDP_DROP;
+        }
+
+        // 3. FIN Scan (FIN set, but ACK not set - illegal state)
+        if (tcph->fin && !tcph->ack) {
+            bpf_printk("FIN Scan detected from IP: %d.%d.%d.%d. Dropping.\n", ip[0], ip[1], ip[2], ip[3]);
+            return XDP_DROP;
+        }
+
+        // SYN Flood Check: 100 pkts/s threshold imitating a typical SYN flood attack.
+        // This is rate-limited because SYN packets are normally legal, but excessive rates indicate an attack.
         if (tcph->syn && !tcph->ack) {
             if (check_rate_limit(&syn_tracker, src_ip, now, 100)) {
                 trigger_block = 1;
